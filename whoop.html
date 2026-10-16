@@ -1,0 +1,1416 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#0b0f14" />
+<title>WhoopLab — centrum dowodzenia dla whooperów</title>
+<link rel="manifest" href='data:application/manifest+json,{"name":"WhoopLab","short_name":"WhoopLab","start_url":".","display":"standalone","background_color":"%230b0f14","theme_color":"%230b0f14"}' />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+tailwind.config = { darkMode:'class', theme: { extend: { colors: {
+  bg:'#0b0f14', panel:'#121820', panel2:'#0f141b', border:'#1f2937',
+  accent:'#22d3ee', accent2:'#a78bfa', danger:'#f87171', warn:'#fbbf24', ok:'#34d399'
+}, fontFamily:{ mono:['ui-monospace','SFMono-Regular','Menlo','monospace'] } } } }
+</script>
+<style>
+:root{--bg:#0b0f14;--panel:#121820;--border:#1f2937;--text:#e2e8f0;--muted:#64748b}
+html.light{--bg:#f1f5f9;--panel:#ffffff;--border:#cbd5e1;--text:#0f172a;--muted:#475569}
+body{background:var(--bg);color:var(--text);transition:background .3s,color .3s}
+html.light body{background:#f1f5f9;color:#0f172a}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+::-webkit-scrollbar-thumb:hover{background:#374151}
+.card{transition:all .15s ease}
+.card:hover{border-color:#22d3ee55;transform:translateY(-2px)}
+.tab-active{background:rgba(34,211,238,.12);color:#22d3ee;border-color:#22d3ee55!important}
+input,select,textarea{color-scheme:dark}
+html.light input,html.light select,html.light textarea{color-scheme:light}
+html.light .bg-panel{background:#fff}
+html.light .bg-bg{background:#f8fafc}
+html.light .text-slate-400{color:#475569}
+html.light .text-slate-500{color:#64748b}
+html.light .text-slate-600{color:#94a3b8}
+.modal-bg{background:rgba(0,0,0,.7);backdrop-filter:blur(4px)}
+#map{height:400px;border-radius:12px;z-index:1}
+.leaflet-container{background:var(--bg)}
+.badge{font-size:10px;padding:2px 6px;border-radius:4px;border:1px solid}
+.stat-card{transition:transform .15s}
+.stat-card:hover{transform:scale(1.02)}
+.glow{box-shadow:0 0 20px -5px rgba(34,211,238,.4)}
+.spin{animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body class="font-mono min-h-screen">
+
+<!-- MODAL -->
+<div id="modal" class="modal-bg fixed inset-0 z-[100] hidden items-center justify-center p-4">
+  <div class="bg-panel border border-border rounded-2xl max-w-lg w-full p-6 shadow-2xl">
+    <h3 id="modal-title" class="font-bold mb-2"></h3>
+    <p id="modal-body" class="text-sm text-slate-400 mb-4"></p>
+    <div class="flex justify-end gap-2">
+      <button onclick="closeModal()" class="px-4 py-2 rounded-lg border border-border hover:bg-white/5 text-sm">Anuluj</button>
+      <button id="modal-confirm" class="px-4 py-2 rounded-lg bg-danger/20 border border-danger/40 text-danger hover:bg-danger/30 text-sm">Potwierdź</button>
+    </div>
+  </div>
+</div>
+
+<!-- HEADER -->
+<header class="border-b border-border bg-panel/80 backdrop-blur sticky top-0 z-50">
+  <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-accent to-accent2 flex items-center justify-center font-bold text-bg text-lg">W</div>
+      <div>
+        <h1 class="text-lg font-bold tracking-tight leading-none">WhoopLab</h1>
+        <p class="text-[10px] text-slate-500 mt-0.5">Centrum dowodzenia • v2.0</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <button id="btn-theme" title="Motyw" class="p-2 rounded-lg border border-border hover:bg-white/5 text-xs">🌙</button>
+      <button id="btn-backup" title="Kopia zapasowa" class="p-2 rounded-lg border border-border hover:bg-white/5 text-xs">💾</button>
+      <button id="btn-restore" title="Przywróć" class="p-2 rounded-lg border border-border hover:bg-white/5 text-xs">📂</button>
+      <input id="file-restore" type="file" accept=".json" class="hidden" />
+    </div>
+  </div>
+  <nav class="max-w-7xl mx-auto px-4 pb-2 flex gap-1 overflow-x-auto text-xs">
+    <button data-tab="dashboard" class="tab-btn px-3 py-1.5 rounded-lg border border-transparent whitespace-nowrap">🏠 Pulpit</button>
+    <button data-tab="motors" class="tab-btn px-3 py-1.5 rounded-lg border border-transparent whitespace-nowrap">🔧 Silniki</button>
+    <button data-tab="props" class="tab-btn px-3 py-1.5 rounded-lg border border-transparent whitespace-nowrap">🌀 Śmigła</button>
+    <button data-tab="compare" class="tab-btn px-3 py-1.5 rounded-lg border border-transparent whitespace-nowrap">⚖️ Porównaj</button>
+    <button data-tab="calc" class="tab-btn px-3 py-1.5 rounded-lg border border-transparent whitespace-nowrap">🧮 Kalkulator</button>
+    <button data-tab="pidcalc" class="tab-btn px-3 py-1.5 rounded-lg border border-transparent whitespace-nowrap">🧠 Kalk. PID</button>
+    <button data-tab="pid" class="tab-btn px-3 py-1.5 rounded-lg border border-transparent whitespace-nowrap">🎛️ PID</button>
+    <button data-tab="parser" class="tab-btn px-3 py-1.5 rounded-lg border border-transparent whitespace-nowrap">📥 Parser</button>
+    <button data-tab="esc" class="tab-btn px-3 py-1.5 rounded-lg border border-transparent whitespace-nowrap">⚡ ESC/Bluejay</button>
+    <button data-tab="tracks" class="tab-btn px-3 py-1.5 rounded-lg border border-transparent whitespace-nowrap">🗺️ Tory</button>
+    <button data-tab="logs" class="tab-btn px-3 py-1.5 rounded-lg border border-transparent whitespace-nowrap">📓 Dziennik</button>
+    <button data-tab="batteries" class="tab-btn px-3 py-1.5 rounded-lg border border-transparent whitespace-nowrap">🔋 Baterie</button>
+    <button data-tab="timer" class="tab-btn px-3 py-1.5 rounded-lg border border-transparent whitespace-nowrap">⏱️ Timer</button>
+    <button data-tab="rankings" class="tab-btn px-3 py-1.5 rounded-lg border border-transparent whitespace-nowrap">🏆 Rankingi</button>
+    <button data-tab="challenges" class="tab-btn px-3 py-1.5 rounded-lg border border-transparent whitespace-nowrap">🎯 Wyzwania</button>
+    <button data-tab="market" class="tab-btn px-3 py-1.5 rounded-lg border border-transparent whitespace-nowrap">🛒 Marketplace</button>
+    <button data-tab="cloud" class="tab-btn px-3 py-1.5 rounded-lg border border-transparent whitespace-nowrap">☁️ Chmura</button>
+    <button data-tab="import" class="tab-btn px-3 py-1.5 rounded-lg border border-transparent whitespace-nowrap">📊 Import CSV</button>
+    <button data-tab="settings" class="tab-btn px-3 py-1.5 rounded-lg border border-transparent whitespace-nowrap">⚙️ Ustawienia</button>
+  </nav>
+</header>
+
+<main class="max-w-7xl mx-auto px-4 py-6">
+
+<!-- DASHBOARD -->
+<section id="tab-dashboard" class="tab-panel">
+  <h2 class="text-xl font-bold mb-4">Pulpit</h2>
+  <div id="dash-stats" class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6"></div>
+  <div class="grid lg:grid-cols-2 gap-4">
+    <div class="bg-panel border border-border rounded-xl p-5">
+      <h3 class="text-sm text-slate-400 mb-3 uppercase tracking-wider">Aktywność (ostatnie 14 dni)</h3>
+      <canvas id="chart-logs" height="120"></canvas>
+    </div>
+    <div class="bg-panel border border-border rounded-xl p-5">
+      <h3 class="text-sm text-slate-400 mb-3 uppercase tracking-wider">Czas lotu wg silnika</h3>
+      <canvas id="chart-motors" height="120"></canvas>
+    </div>
+  </div>
+</section>
+
+<!-- MOTORS -->
+<section id="tab-motors" class="tab-panel hidden">
+  <div class="flex items-baseline justify-between mb-4 gap-3 flex-wrap">
+    <h2 class="text-xl font-bold">Silniki <span class="text-slate-500 text-sm font-normal">(<span id="motors-count">0</span>)</span></h2>
+    <div class="flex gap-2">
+      <input id="motors-search" placeholder="szukaj..." class="bg-panel border border-border rounded-lg px-3 py-1.5 text-sm w-40 sm:w-64 focus:outline-none focus:border-accent" />
+      <button id="btn-add-motor" class="text-xs px-3 py-1.5 rounded-lg bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30 whitespace-nowrap">+ Dodaj</button>
+    </div>
+  </div>
+  <div id="motors-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+</section>
+
+<!-- PROPS -->
+<section id="tab-props" class="tab-panel hidden">
+  <div class="flex items-baseline justify-between mb-4">
+    <h2 class="text-xl font-bold">Śmigła</h2>
+    <button id="btn-add-prop" class="text-xs px-3 py-1.5 rounded-lg bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30">+ Dodaj</button>
+  </div>
+  <div id="props-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+</section>
+
+<!-- COMPARE -->
+<section id="tab-compare" class="tab-panel hidden">
+  <h2 class="text-xl font-bold mb-4">Porównywarka</h2>
+  <div class="bg-panel border border-border rounded-xl p-4 mb-4">
+    <p class="text-sm text-slate-400 mb-3">Zaznacz do 3 silników:</p>
+    <div id="compare-picker" class="flex flex-wrap gap-2"></div>
+  </div>
+  <div id="compare-result" class="overflow-x-auto"></div>
+</section>
+
+<!-- CALC -->
+<section id="tab-calc" class="tab-panel hidden">
+  <h2 class="text-xl font-bold mb-4">Kalkulator ciągu do wagi</h2>
+  <div class="grid lg:grid-cols-2 gap-4">
+    <div class="bg-panel border border-border rounded-xl p-5">
+      <label class="block mb-3"><span class="text-xs text-slate-400">Silnik</span>
+        <select id="calc-motor" class="mt-1 w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent"></select></label>
+      <label class="block mb-3"><span class="text-xs text-slate-400">Śmigło</span>
+        <select id="calc-prop" class="mt-1 w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent"></select></label>
+      <div class="grid grid-cols-2 gap-3 mb-3">
+        <label><span class="text-xs text-slate-400">Waga (g)</span>
+          <input id="calc-weight" type="number" value="20" min="5" max="100" step="0.5" class="mt-1 w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm" /></label>
+        <label><span class="text-xs text-slate-400">Silniki</span>
+          <input id="calc-count" type="number" value="4" min="1" max="4" class="mt-1 w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm" /></label>
+      </div>
+      <label class="block mb-3"><span class="text-xs text-slate-400">Napięcie (V)</span>
+        <input id="calc-voltage" type="number" value="3.7" min="1" max="8.4" step="0.05" class="mt-1 w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm" /></label>
+      <label class="block"><span class="text-xs text-slate-400">Limit mocy (%)</span>
+        <input id="calc-limit" type="number" value="100" min="30" max="100" step="1" class="mt-1 w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm" /></label>
+    </div>
+    <div class="bg-panel border border-border rounded-xl p-5">
+      <h3 class="text-sm text-slate-400 mb-3 uppercase tracking-wider">Wyniki</h3>
+      <div id="calc-results" class="space-y-3"></div>
+    </div>
+  </div>
+</section>
+
+<!-- PID CALC -->
+<section id="tab-pidcalc" class="tab-panel hidden">
+  <h2 class="text-xl font-bold mb-4">Kalkulator PID</h2>
+  <div class="grid lg:grid-cols-2 gap-4">
+    <div class="bg-panel border border-border rounded-xl p-5">
+      <h3 class="text-sm text-slate-400 mb-3 uppercase tracking-wider">Wejście</h3>
+      <label class="block mb-3"><span class="text-xs text-slate-400">Waga drona (g)</span>
+        <input id="pc-weight" type="number" value="20" min="10" max="80" step="0.5" class="mt-1 w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm" /></label>
+      <label class="block mb-3"><span class="text-xs text-slate-400">KV silników</span>
+        <input id="pc-kv" type="number" value="26000" min="18000" max="40000" step="500" class="mt-1 w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm" /></label>
+      <label class="block mb-3"><span class="text-xs text-slate-400">Rozmiar śmigła (cal)</span>
+        <select id="pc-prop" class="mt-1 w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm">
+          <option value="0.7">0.7"</option><option value="1.1" selected>1.1"</option><option value="1.9">1.9"</option>
+        </select></label>
+      <label class="block mb-3"><span class="text-xs text-slate-400">Styl latania</span>
+        <select id="pc-style" class="mt-1 w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm">
+          <option value="precision">Precyzja / hala</option>
+          <option value="balanced" selected>Zrównoważony</option>
+          <option value="aggressive">Agresywny / zawody</option>
+        </select></label>
+      <label class="block"><span class="text-xs text-slate-400">Napięcie pakietu (V)</span>
+        <input id="pc-voltage" type="number" value="3.7" min="1" max="8.4" step="0.05" class="mt-1 w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm" /></label>
+      <button id="pc-run" class="w-full mt-4 px-4 py-2 rounded-lg bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30 text-sm font-bold">🧠 Generuj PID</button>
+    </div>
+    <div class="bg-panel border border-border rounded-xl p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm text-slate-400 uppercase tracking-wider">Wygenerowany diff</h3>
+        <button id="pc-copy" class="hidden px-3 py-1.5 rounded-lg bg-accent/20 border border-accent/40 text-accent text-xs hover:bg-accent/30">📋 Kopiuj</button>
+      </div>
+      <pre id="pc-output" class="text-xs bg-bg border border-border rounded-lg p-3 overflow-auto max-h-[500px] text-slate-400">Ustaw parametry i kliknij Generuj.</pre>
+      <div id="pc-explain" class="text-xs text-slate-500 mt-3"></div>
+    </div>
+  </div>
+</section>
+
+<!-- PID -->
+<section id="tab-pid" class="tab-panel hidden">
+  <div class="flex items-baseline justify-between mb-4">
+    <h2 class="text-xl font-bold">Biblioteka profili PID</h2>
+    <button id="btn-add-pid" class="text-xs px-3 py-1.5 rounded-lg bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30">+ Dodaj</button>
+  </div>
+  <div class="grid lg:grid-cols-3 gap-3">
+    <div id="pid-list" class="lg:col-span-1 space-y-2 max-h-[600px] overflow-y-auto pr-1"></div>
+    <div class="lg:col-span-2 bg-panel border border-border rounded-xl p-5">
+      <div class="flex items-center justify-between mb-3 gap-2">
+        <h3 id="pid-title" class="font-bold">Wybierz profil</h3>
+        <div class="flex gap-2">
+          <button id="pid-copy" class="hidden px-3 py-1.5 rounded-lg bg-accent/20 border border-accent/40 text-accent text-xs">📋 Kopiuj</button>
+          <button id="pid-export" class="hidden px-3 py-1.5 rounded-lg bg-accent2/20 border border-accent2/40 text-accent2 text-xs">⬇️ .txt</button>
+          <button id="pid-del" class="hidden px-3 py-1.5 rounded-lg bg-danger/20 border border-danger/40 text-danger text-xs">🗑️</button>
+        </div>
+      </div>
+      <pre id="pid-preview" class="text-xs bg-bg border border-border rounded-lg p-3 overflow-auto max-h-[500px] text-slate-400">Wybierz profil.</pre>
+      <p id="pid-status" class="text-xs mt-2 hidden"></p>
+    </div>
+  </div>
+</section>
+
+<!-- PARSER -->
+<section id="tab-parser" class="tab-panel hidden">
+  <h2 class="text-xl font-bold mb-4">Parser diffa Betaflight</h2>
+  <div class="grid lg:grid-cols-2 gap-4">
+    <div class="bg-panel border border-border rounded-xl p-5">
+      <textarea id="parser-input" rows="18" placeholder="# diff all&#10;..." class="w-full bg-bg border border-border rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-accent resize-y"></textarea>
+      <div class="flex gap-2 mt-3">
+        <button id="parser-run" class="flex-1 px-4 py-2 rounded-lg bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30 text-sm">🔍 Analizuj</button>
+        <button id="parser-save" class="px-4 py-2 rounded-lg bg-accent2/20 border border-accent2/40 text-accent2 hover:bg-accent2/30 text-sm">💾 Zapisz</button>
+      </div>
+    </div>
+    <div class="bg-panel border border-border rounded-xl p-5">
+      <h3 class="text-sm text-slate-400 mb-3 uppercase tracking-wider">Wynik</h3>
+      <div id="parser-result" class="text-xs text-slate-400">Wklej diff i kliknij Analizuj.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ESC / BLUEJAY -->
+<section id="tab-esc" class="tab-panel hidden">
+  <h2 class="text-xl font-bold mb-4">Konfigurator ESC / Bluejay</h2>
+  <div class="grid lg:grid-cols-2 gap-4">
+    <div class="bg-panel border border-border rounded-xl p-5">
+      <h3 class="text-sm text-slate-400 mb-3 uppercase tracking-wider">Parametry</h3>
+      <label class="block mb-3"><span class="text-xs text-slate-400">Protokół</span>
+        <select id="esc-proto" class="mt-1 w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm">
+          <option>DSHOT300</option><option>DSHOT600</option><option>DSHOT150</option>
+        </select></label>
+      <label class="block mb-3"><span class="text-xs text-slate-400">Motor PWM Frequency</span>
+        <select id="esc-pwm" class="mt-1 w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm">
+          <option>24kHz</option><option>48kHz</option><option>96kHz</option>
+        </select></label>
+      <label class="block mb-3"><span class="text-xs text-slate-400">Startup Power</span>
+        <input id="esc-startup" type="number" value="1050" min="1000" max="1050" class="mt-1 w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm" /></label>
+      <label class="block mb-3"><span class="text-xs text-slate-400">Motor Timing</span>
+        <select id="esc-timing" class="mt-1 w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm">
+          <option>Low</option><option selected>Medium</option><option>MediumHigh</option><option>High</option>
+        </select></label>
+      <label class="block mb-3"><span class="text-xs text-slate-400">Demag Compensation</span>
+        <select id="esc-demag" class="mt-1 w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm">
+          <option>Off</option><option selected>Low</option><option>High</option>
+        </select></label>
+      <label class="block mb-3"><span class="text-xs text-slate-400">Bidirectional DShot</span>
+        <select id="esc-bidir" class="mt-1 w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm">
+          <option>On</option><option>Off</option>
+        </select></label>
+      <label class="block"><span class="text-xs text-slate-400">RPM Filter</span>
+        <select id="esc-rpm" class="mt-1 w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm">
+          <option>On</option><option>Off</option>
+        </select></label>
+      <button id="esc-gen" class="w-full mt-4 px-4 py-2 rounded-lg bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30 text-sm font-bold">⚡ Generuj konfig</button>
+    </div>
+    <div class="bg-panel border border-border rounded-xl p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm text-slate-400 uppercase tracking-wider">Wynik</h3>
+        <button id="esc-copy" class="px-3 py-1.5 rounded-lg bg-accent/20 border border-accent/40 text-accent text-xs">📋 Kopiuj</button>
+      </div>
+      <pre id="esc-output" class="text-xs bg-bg border border-border rounded-lg p-3 overflow-auto max-h-[500px] text-slate-400">Ustaw parametry i kliknij Generuj.</pre>
+      <p class="text-xs text-slate-500 mt-3">Uwaga: wartości są rekomendacją. Zawsze testuj na sucho przed lotem.</p>
+    </div>
+  </div>
+</section>
+
+<!-- TRACKS -->
+<section id="tab-tracks" class="tab-panel hidden">
+  <div class="flex items-baseline justify-between mb-4">
+    <h2 class="text-xl font-bold">Tory</h2>
+    <button id="btn-add-track" class="text-xs px-3 py-1.5 rounded-lg bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30">+ Info</button>
+  </div>
+  <div id="map" class="border border-border mb-4"></div>
+  <div id="tracks-list" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+</section>
+
+<!-- LOGS -->
+<section id="tab-logs" class="tab-panel hidden">
+  <div class="flex items-baseline justify-between mb-4">
+    <h2 class="text-xl font-bold">Dziennik lotów</h2>
+    <button id="btn-add-log" class="text-xs px-3 py-1.5 rounded-lg bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30">+ Dodaj lot</button>
+  </div>
+  <div id="logs-stats" class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4"></div>
+  <div id="logs-list" class="space-y-2"></div>
+</section>
+
+<!-- BATTERIES -->
+<section id="tab-batteries" class="tab-panel hidden">
+  <div class="flex items-baseline justify-between mb-4">
+    <h2 class="text-xl font-bold">Baterie</h2>
+    <button id="btn-add-batt" class="text-xs px-3 py-1.5 rounded-lg bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30">+ Dodaj</button>
+  </div>
+  <div id="batt-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+</section>
+
+<!-- TIMER -->
+<section id="tab-timer" class="tab-panel hidden">
+  <h2 class="text-xl font-bold mb-4">Lap Timer</h2>
+  <div class="grid lg:grid-cols-2 gap-4">
+    <div class="bg-panel border border-border rounded-xl p-8 text-center">
+      <div id="timer-display" class="text-6xl font-bold text-accent mb-6 tabular-nums">00:00.00</div>
+      <div class="flex justify-center gap-2 flex-wrap">
+        <button id="timer-start" class="px-6 py-3 rounded-lg bg-ok/20 border border-ok/40 text-ok hover:bg-ok/30 font-bold">▶ Start</button>
+        <button id="timer-lap" class="px-6 py-3 rounded-lg bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30 font-bold">⏱ Okrążenie</button>
+        <button id="timer-stop" class="px-6 py-3 rounded-lg bg-danger/20 border border-danger/40 text-danger hover:bg-danger/30 font-bold">⏹ Stop</button>
+        <button id="timer-reset" class="px-6 py-3 rounded-lg border border-border hover:bg-white/5">↺ Reset</button>
+      </div>
+      <label class="flex items-center justify-center gap-2 mt-4 text-xs text-slate-400">
+        <input type="checkbox" id="timer-sound" checked class="accent-accent" /> Dźwięk
+      </label>
+      <button id="timer-save" class="mt-3 text-xs px-3 py-1.5 rounded border border-border hover:border-accent/50">💾 Zapisz sesję w dzienniku</button>
+    </div>
+    <div class="bg-panel border border-border rounded-xl p-5">
+      <h3 class="text-sm text-slate-400 mb-3 uppercase tracking-wider">Okrążenia</h3>
+      <div id="timer-laps" class="space-y-1 text-sm max-h-[400px] overflow-y-auto">Brak okrążeń.</div>
+    </div>
+  </div>
+</section>
+
+<!-- RANKINGS -->
+<section id="tab-rankings" class="tab-panel hidden">
+  <div class="flex items-baseline justify-between mb-4">
+    <h2 class="text-xl font-bold">Rankingi</h2>
+    <div class="flex gap-2">
+      <select id="rank-filter" class="bg-panel border border-border rounded-lg px-3 py-1.5 text-sm">
+        <option value="all">Wszystkie tory</option>
+      </select>
+      <button id="btn-export-rank" class="text-xs px-3 py-1.5 rounded-lg border border-border hover:border-accent/50">⬇️ CSV</button>
+    </div>
+  </div>
+  <div id="rankings-list"></div>
+</section>
+
+<!-- CHALLENGES -->
+<section id="tab-challenges" class="tab-panel hidden">
+  <h2 class="text-xl font-bold mb-4">Wyzwania</h2>
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" id="challenges-grid"></div>
+</section>
+
+<!-- MARKET -->
+<section id="tab-market" class="tab-panel hidden">
+  <div class="flex items-baseline justify-between mb-4">
+    <h2 class="text-xl font-bold">Marketplace</h2>
+    <button id="btn-add-listing" class="text-xs px-3 py-1.5 rounded-lg bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30">+ Wystaw</button>
+  </div>
+  <div class="flex gap-2 mb-4 flex-wrap">
+    <input id="market-search" placeholder="szukaj..." class="bg-panel border border-border rounded-lg px-3 py-1.5 text-sm flex-1 min-w-[200px]" />
+    <select id="market-cat" class="bg-panel border border-border rounded-lg px-3 py-1.5 text-sm">
+      <option value="">Wszystkie</option><option>Silniki</option><option>Śmigła</option><option>Ramy</option><option>AIO</option><option>Baterie</option><option>Inne</option>
+    </select>
+  </div>
+  <div id="market-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+</section>
+
+<!-- CLOUD -->
+<section id="tab-cloud" class="tab-panel hidden">
+  <h2 class="text-xl font-bold mb-4">☁️ Synchronizacja w chmurze</h2>
+  <div class="grid lg:grid-cols-2 gap-4">
+    <div class="bg-panel border border-border rounded-xl p-5">
+      <h3 class="text-sm text-slate-400 mb-3 uppercase tracking-wider">Konto</h3>
+      <label class="block mb-3"><span class="text-xs text-slate-400">Email</span>
+        <input id="cloud-email" type="email" placeholder="pilot@whooplab.io" class="mt-1 w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm" /></label>
+      <label class="block mb-3"><span class="text-xs text-slate-400">Hasło</span>
+        <input id="cloud-pass" type="password" placeholder="••••••••" class="mt-1 w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm" /></label>
+      <div class="flex gap-2">
+        <button id="cloud-login" class="flex-1 px-4 py-2 rounded-lg bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30 text-sm">Zaloguj</button>
+        <button id="cloud-logout" class="px-4 py-2 rounded-lg border border-border hover:bg-white/5 text-sm">Wyloguj</button>
+      </div>
+      <p class="text-xs text-slate-500 mt-3">Tryb demo – dane zapisywane lokalnie. Integracja z Supabase w roadmapie.</p>
+    </div>
+    <div class="bg-panel border border-border rounded-xl p-5">
+      <h3 class="text-sm text-slate-400 mb-3 uppercase tracking-wider">Status</h3>
+      <div id="cloud-status" class="text-sm text-slate-400">Nie zalogowano.</div>
+      <div class="mt-4 space-y-2">
+        <button id="cloud-push" class="w-full px-4 py-2 rounded-lg border border-border hover:border-accent/50 text-sm">⬆️ Wyślij do chmury</button>
+        <button id="cloud-pull" class="w-full px-4 py-2 rounded-lg border border-border hover:border-accent/50 text-sm">⬇️ Pobierz z chmury</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- IMPORT CSV -->
+<section id="tab-import" class="tab-panel hidden">
+  <h2 class="text-xl font-bold mb-4">Import CSV z hamowni</h2>
+  <div class="bg-panel border border-border rounded-xl p-5">
+    <p class="text-sm text-slate-400 mb-3">Wklej CSV (nagłówki: name, kv, weight_g, max_thrust_g, max_current_a) lub wgraj plik.</p>
+    <textarea id="csv-input" rows="8" placeholder="name,kv,weight_g,max_thrust_g,max_current_a&#10;VCI 0702,30000,1.49,38.8,5.9" class="w-full bg-bg border border-border rounded-lg px-3 py-2 text-xs font-mono resize-y"></textarea>
+    <div class="flex gap-2 mt-3 flex-wrap">
+      <input id="csv-file" type="file" accept=".csv" class="text-xs" />
+      <button id="csv-parse" class="px-4 py-2 rounded-lg bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30 text-sm">📊 Parsuj i dodaj</button>
+      <button id="csv-template" class="px-4 py-2 rounded-lg border border-border hover:border-accent/50 text-sm">⬇️ Szablon</button>
+    </div>
+    <div id="csv-result" class="mt-3 text-xs text-slate-400"></div>
+  </div>
+</section>
+
+<!-- SETTINGS -->
+<section id="tab-settings" class="tab-panel hidden">
+  <h2 class="text-xl font-bold mb-4">Ustawienia</h2>
+  <div class="grid lg:grid-cols-2 gap-4">
+    <div class="bg-panel border border-border rounded-xl p-5">
+      <h3 class="text-sm text-slate-400 mb-3 uppercase tracking-wider">Wygląd</h3>
+      <label class="flex items-center justify-between mb-3">
+        <span class="text-sm">Motyw jasny</span>
+        <input type="checkbox" id="set-light" class="accent-accent w-5 h-5" />
+      </label>
+      <label class="flex items-center justify-between">
+        <span class="text-sm">Animacje</span>
+        <input type="checkbox" id="set-anim" checked class="accent-accent w-5 h-5" />
+      </label>
+    </div>
+    <div class="bg-panel border border-border rounded-xl p-5">
+      <h3 class="text-sm text-slate-400 mb-3 uppercase tracking-wider">Dane</h3>
+      <div class="space-y-2">
+        <button id="set-backup" class="w-full px-4 py-2 rounded-lg border border-border hover:border-accent/50 text-sm text-left">💾 Eksportuj wszystko (.json)</button>
+        <button id="set-restore" class="w-full px-4 py-2 rounded-lg border border-border hover:border-accent/50 text-sm text-left">📂 Importuj backup</button>
+        <button id="set-csv" class="w-full px-4 py-2 rounded-lg border border-border hover:border-accent/50 text-sm text-left">📊 Eksport silników (.csv)</button>
+        <button id="set-reset" class="w-full px-4 py-2 rounded-lg bg-danger/10 border border-danger/30 text-danger hover:bg-danger/20 text-sm text-left">🗑️ Reset do ustawień fabrycznych</button>
+      </div>
+    </div>
+    <div class="bg-panel border border-border rounded-xl p-5 lg:col-span-2">
+      <h3 class="text-sm text-slate-400 mb-3 uppercase tracking-wider">Statystyki</h3>
+      <div id="settings-stats" class="grid grid-cols-2 sm:grid-cols-4 gap-3"></div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="border-t border-border mt-12 py-6 text-center text-xs text-slate-600">
+  WhoopLab v2.0 • wszystko lokalnie • backup w Ustawieniach
+</footer>
+
+<script>
+/* ==================================================================
+   0. UTIL
+   ================================================================== */
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+const uuid = () => Math.random().toString(36).slice(2,10);
+const STORE_KEY = 'whooplab_v2';
+
+function showModal(title, body, onConfirm) {
+  $('#modal-title').textContent = title;
+  $('#modal-body').textContent = body;
+  $('#modal').classList.remove('hidden'); $('#modal').classList.add('flex');
+  $('#modal-confirm').onclick = () => { onConfirm(); closeModal(); };
+}
+function closeModal(){ $('#modal').classList.add('hidden'); $('#modal').classList.remove('flex'); }
+function kvColor(kv){ return kv>=29000?'text-danger':kv>=26000?'text-warn':'text-ok'; }
+function tempBadge(t){ const m={cool:'bg-ok/20 text-ok border-ok/40',warm:'bg-warn/20 text-warn border-warn/40',hot:'bg-danger/20 text-danger border-danger/40'}; return m[t]||'bg-white/5 text-slate-400 border-border'; }
+
+/* ==================================================================
+   1. STAN
+   ================================================================== */
+let STATE = load();
+function load() { try { const raw = localStorage.getItem(STORE_KEY); if (raw) return JSON.parse(raw); } catch(e){} return null; }
+function save() { localStorage.setItem(STORE_KEY, JSON.stringify(STATE)); }
+function ensure(seed) {
+  if (!STATE) { STATE = JSON.parse(JSON.stringify(seed)); save(); }
+  else Object.keys(seed).forEach(k => { if (STATE[k]===undefined) STATE[k] = seed[k]; });
+}
+
+/* ==================================================================
+   2. SEED
+   ================================================================== */
+const SEED = {
+  motors:[
+    {id:'happymodel-se0702-26000',name:'HappyModel SE0702',kv:26000,weight_g:1.46,stator:'0702',magnets:'52SH arc',resistance_mohm:180,max_current_a:4.38,max_thrust_g:31.4,test_prop:'Gemfan 31mm 2-łopatowe',temp_c:null,temp:'ok',tags:['1S','lekki','precyzja','trening'],notes:'Zoptymalizowany pod lekkie śmigła. Idealny do precyzyjnego latania.'},
+    {id:'vci-0702pro-30000',name:'VCI 0702PRO DB',kv:30000,weight_g:1.49,stator:'0702',magnets:'52SH arc',resistance_mohm:170,max_current_a:5.9,max_thrust_g:38.8,test_prop:'Gemfan 1219S-3',temp_c:66,temp:'hot',tags:['1S','racing','agresywny','zawody'],notes:'Wysokie KV, świetne do zawodów.'},
+    {id:'vci-0702pro-27000',name:'VCI 0702PRO DB',kv:27000,weight_g:1.49,stator:'0702',magnets:'52SH arc',resistance_mohm:180,max_current_a:5.1,max_thrust_g:37.6,test_prop:'Gemfan 1219S-3',temp_c:62,temp:'warm',tags:['1S','uniwersalny'],notes:'Złoty środek.'},
+    {id:'vci-0702pro-23000',name:'VCI 0702PRO DB',kv:23000,weight_g:1.47,stator:'0702',magnets:'52SH arc',resistance_mohm:230,max_current_a:3.8,max_thrust_g:32.5,test_prop:'Gemfan 12195-3',temp_c:53,temp:'cool',tags:['1S','wydajny','długi lot'],notes:'Najbardziej wydajny.'},
+    {id:'happymodel-se0702-23000',name:'HappyModel SE0702',kv:23000,weight_g:1.46,stator:'0702',magnets:'52SH',resistance_mohm:null,max_current_a:0.52,max_thrust_g:5.1,test_prop:'Gemfan 31mm 2-łopatowe',temp_c:null,temp:'cool',tags:['1S','freestyle','nauka'],notes:'Najłagodniejszy.'},
+    {id:'happymodel-se0702-28000',name:'HappyModel SE0702',kv:28000,weight_g:1.46,stator:'0702',magnets:'52SH',resistance_mohm:null,max_current_a:4.74,max_thrust_g:34.6,test_prop:'Gemfan 1219S-3',temp_c:null,temp:'warm',tags:['1S','uniwersalny'],notes:'Więcej mocy niż 26KV.'},
+    {id:'betafpv-0702-27000',name:'BetaFPV 0702',kv:27000,weight_g:1.5,stator:'0702',magnets:'N52',resistance_mohm:190,max_current_a:4.5,max_thrust_g:33.0,test_prop:'BetaFPV 31mm 3B',temp_c:60,temp:'warm',tags:['1S','uniwersalny'],notes:'Standard w Air65 Racing.'}
+  ],
+  props:[
+    {id:'gemfan-1207',name:'Gemfan 1207',diameter_mm:31,pitch_in:0.7,blades:3,weight_g:0.15,material:'PC',shaft_mm:1.0,tags:['precyzja','responsywność','hala'],notes:'Rekordowo lekkie.'},
+    {id:'hqprop-ultralight-31',name:'HQProp Ultralight 31mm',diameter_mm:31,pitch_in:1.1,blades:3,weight_g:0.16,material:'PC',shaft_mm:1.0,tags:['uniwersalne','płynność'],notes:'Złoty środek.'},
+    {id:'gemfan-1219',name:'Gemfan 1219S',diameter_mm:31,pitch_in:1.9,blades:3,weight_g:0.28,material:'PC',shaft_mm:1.0,tags:['racing','moc'],notes:'Maksymalny ciąg.'},
+    {id:'gemfan-31-2b',name:'Gemfan 31mm 2-łopatowe',diameter_mm:31,pitch_in:1.0,blades:2,weight_g:0.20,material:'PC',shaft_mm:1.0,tags:['wydajność'],notes:'Najwyższa sprawność.'},
+    {id:'gemfan-12195',name:'Gemfan 12195-3',diameter_mm:31,pitch_in:1.9,blades:3,weight_g:0.26,material:'PC',shaft_mm:1.0,tags:['racing'],notes:'Alternatywa 1219S.'}
+  ],
+  pids:[
+    {id:'indoor-precision',name:'Indoor Precision',desc:'Precyzja, pokój, ciasne bramki',builtIn:true,
+     diff:`# Indoor Precision - Tight Track\nrateprofile 1\nset rates_type = BETAFLIGHT\nset roll_rc_rate = 85\nset pitch_rc_rate = 85\nset yaw_rc_rate = 100\nset roll_expo = 35\nset pitch_expo = 35\nset yaw_expo = 30\nset roll_srate = 60\nset pitch_srate = 60\nset yaw_srate = 60\nset throttle_mid = 0.30\nset throttle_expo = 0.60`},
+    {id:'racing-aggressive',name:'Racing Aggressive',desc:'Zawody, szybka reakcja',builtIn:true,
+     diff:`# Racing Aggressive\nrateprofile 2\nset rates_type = BETAFLIGHT\nset roll_rc_rate = 110\nset pitch_rc_rate = 110\nset yaw_rc_rate = 140\nset roll_expo = 25\nset pitch_expo = 25\nset yaw_expo = 25\nset roll_srate = 68\nset pitch_srate = 68\nset yaw_srate = 65\nset throttle_mid = 0.30\nset throttle_expo = 0.60`},
+    {id:'gf1207',name:'GF 1207 (PID)',desc:'Profil z Twojego diffa',builtIn:true,
+     diff:`# profile 2 - GF 1207\nset profile_name = GF 1207\nset anti_gravity_gain = 60\nset throttle_boost = 0\nset p_pitch = 39\nset i_pitch = 57\nset d_pitch = 28\nset f_pitch = 47\nset p_roll = 38\nset i_roll = 54\nset d_roll = 26\nset f_roll = 45\nset p_yaw = 38\nset i_yaw = 54\nset f_yaw = 45\nset d_max_roll = 29\nset d_max_pitch = 31\nset d_max_gain = 20\nset simplified_master_multiplier = 85\nset tpa_rate = 60\nset tpa_breakpoint = 1210`}
+  ],
+  tracks:[], logs:[], batteries:[], laps:[], compare:[], challenges:[], listings:[], rankings:[], settings:{light:false,anim:true}
+};
+
+const CHALLENGES_SEED = [
+  {id:'c1',name:'10 okrążeń bez błędu',desc:'Przejedź 10 okrążeń bez uderzenia w bramkę.',target:10,unit:'okrążeń',reward:'🥇'},
+  {id:'c2',name:'Sub 30s',desc:'Okrążenie poniżej 30 sekund na dowolnym torze.',target:30,unit:'s',reward:'⚡'},
+  {id:'c3',name:'Freestyle 5 min',desc:'Lataj 5 minut bez przerwy.',target:300,unit:'s',reward:'🎬'},
+  {id:'c4',name:'100 lotów',desc:'Wykonaj 100 lotów.',target:100,unit:'lotów',reward:'💯'},
+  {id:'c5',name:'Precyzja 20 bramek',desc:'20 bramek z rzędu bez dotknięcia.',target:20,unit:'bramek',reward:'🎯'},
+  {id:'c6',name:'Pakiet bez ładowania',desc:'3 loty na jednym pakiecie.',target:3,unit:'lotów',reward:'🔋'}
+];
+
+ensure(SEED);
+if (!STATE.challenges.length) { STATE.challenges = CHALLENGES_SEED.map(c=>({...c,progress:0,completed:false})); save(); }
+
+/* ==================================================================
+   3. RENDER SILNIKI
+   ================================================================== */
+function renderMotors(filter='') {
+  const grid = $('#motors-grid'); if (!grid) return;
+  const f = filter.toLowerCase();
+  const list = STATE.motors.filter(m => !f || m.name.toLowerCase().includes(f) || String(m.kv).includes(f) || m.tags.some(t=>t.includes(f)));
+  $('#motors-count').textContent = list.length;
+  grid.innerHTML = list.map(m => `
+    <div class="card bg-panel border border-border rounded-xl p-4">
+      <div class="flex items-start justify-between mb-2">
+        <div><h3 class="font-bold text-sm">${m.name}</h3><p class="text-xs text-slate-500">${m.stator} • ${m.magnets||'-'}</p></div>
+        <div class="text-right"><div class="text-lg font-bold ${kvColor(m.kv)}">${(m.kv/1000).toFixed(0)}K</div><div class="text-[10px] text-slate-500">KV</div></div>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-xs mb-3">
+        <div><div class="text-slate-500">Waga</div><div class="font-bold">${m.weight_g}g</div></div>
+        <div><div class="text-slate-500">Ciąg</div><div class="font-bold">${m.max_thrust_g}g</div></div>
+        <div><div class="text-slate-500">Prąd</div><div class="font-bold">${m.max_current_a}A</div></div>
+      </div>
+      <p class="text-xs text-slate-400 mb-2">${m.notes||''}</p>
+      <div class="flex flex-wrap gap-1 mb-2">${(m.tags||[]).map(t=>`<span class="badge bg-white/5 border-border text-slate-400">${t}</span>`).join('')}</div>
+      <div class="flex justify-end gap-2"><button data-del-motor="${m.id}" class="text-danger text-xs hover:underline">usuń</button></div>
+    </div>`).join('') || '<p class="text-slate-500 text-sm col-span-full">Brak.</p>';
+  $$('[data-del-motor]').forEach(b => b.onclick = () => {
+    showModal('Usuń silnik','Na pewno?',()=>{STATE.motors=STATE.motors.filter(x=>x.id!==b.dataset.delMotor);save();renderAll();});
+  });
+}
+
+/* ==================================================================
+   4. RENDER ŚMIGŁA
+   ================================================================== */
+function renderProps() {
+  const grid = $('#props-grid'); if (!grid) return;
+  grid.innerHTML = STATE.props.map(p => `
+    <div class="card bg-panel border border-border rounded-xl p-4">
+      <div class="flex items-start justify-between mb-2">
+        <div><h3 class="font-bold text-sm">${p.name}</h3><p class="text-xs text-slate-500">${p.diameter_mm}mm • ${p.blades} łopaty • ${p.material}</p></div>
+        <div class="text-right"><div class="text-lg font-bold text-accent">${p.pitch_in}"</div><div class="text-[10px] text-slate-500">skok</div></div>
+      </div>
+      <div class="grid grid-cols-2 gap-2 text-xs mb-3">
+        <div><div class="text-slate-500">Waga</div><div class="font-bold">${p.weight_g}g</div></div>
+        <div><div class="text-slate-500">Otwór</div><div class="font-bold">${p.shaft_mm}mm</div></div>
+      </div>
+      <p class="text-xs text-slate-400 mb-2">${p.notes||''}</p>
+      <div class="flex justify-end"><button data-del-prop="${p.id}" class="text-danger text-xs hover:underline">usuń</button></div>
+    </div>`).join('');
+  $$('[data-del-prop]').forEach(b => b.onclick = () => {
+    showModal('Usuń śmigło','Na pewno?',()=>{STATE.props=STATE.props.filter(x=>x.id!==b.dataset.delProp);save();renderAll();});
+  });
+}
+
+/* ==================================================================
+   5. COMPARE
+   ================================================================== */
+function renderComparePicker() {
+  const el = $('#compare-picker'); if (!el) return;
+  el.innerHTML = STATE.motors.map(m => {
+    const sel = STATE.compare.includes(m.id);
+    return `<button data-cmp="${m.id}" class="cmp-btn text-xs px-3 py-1.5 rounded-lg border ${sel?'bg-accent/20 border-accent/60 text-accent':'border-border text-slate-400 hover:border-accent/40'}">${m.name} ${m.kv}KV</button>`;
+  }).join('');
+  $$('.cmp-btn').forEach(b => b.onclick = () => {
+    const id = b.dataset.cmp;
+    if (STATE.compare.includes(id)) STATE.compare = STATE.compare.filter(x=>x!==id);
+    else if (STATE.compare.length < 3) STATE.compare.push(id);
+    else { showModal('Limit','Max 3 silniki.',()=>{}); return; }
+    save(); renderComparePicker(); renderCompareResult();
+  });
+}
+function renderCompareResult() {
+  const el = $('#compare-result'); if (!el) return;
+  const list = STATE.compare.map(id => STATE.motors.find(m=>m.id===id)).filter(Boolean);
+  if (!list.length) { el.innerHTML = '<p class="text-slate-500 text-sm">Zaznacz silniki.</p>'; return; }
+  const rows = [
+    ['KV', m => `<span class="font-bold ${kvColor(m.kv)}">${m.kv}</span>`],
+    ['Stator', m => m.stator], ['Waga', m => m.weight_g+' g'],
+    ['Rezystancja', m => (m.resistance_mohm||'-')+' mΩ'],
+    ['Ciąg max', m => `<span class="font-bold">${m.max_thrust_g} g</span>`],
+    ['Prąd max', m => `<span class="font-bold">${m.max_current_a} A</span>`],
+    ['Temp', m => `<span class="badge border ${tempBadge(m.temp)}">${m.temp_c?m.temp_c+'°C':'?'}</span>`],
+    ['Tagi', m => (m.tags||[]).map(t=>`<span class="badge bg-white/5 border-border">${t}</span>`).join(' ')]
+  ];
+  el.innerHTML = `<table class="w-full text-sm border border-border rounded-xl overflow-hidden">
+    <thead class="bg-panel2"><tr><th class="text-left px-3 py-2 text-xs text-slate-500 w-32">Cecha</th>
+    ${list.map(m=>`<th class="text-left px-3 py-2">${m.name}<div class="text-xs text-slate-500">${m.kv}KV</div></th>`).join('')}</tr></thead>
+    <tbody>${rows.map(([l,fn])=>`<tr class="border-t border-border"><td class="px-3 py-2 text-xs text-slate-500">${l}</td>${list.map(m=>`<td class="px-3 py-2">${fn(m)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+}
+
+/* ==================================================================
+   6. CALCULATOR
+   ================================================================== */
+function initCalc() {
+  const mSel = $('#calc-motor'), pSel = $('#calc-prop'); if (!mSel) return;
+  mSel.innerHTML = STATE.motors.map(m=>`<option value="${m.id}">${m.name} ${m.kv}KV</option>`).join('');
+  pSel.innerHTML = STATE.props.map(p=>`<option value="${p.id}">${p.name} (${p.pitch_in}")</option>`).join('');
+  ['calc-motor','calc-prop','calc-weight','calc-count','calc-voltage','calc-limit'].forEach(id => {
+    const el = $('#'+id); if (el) el.oninput = updateCalc;
+  });
+  updateCalc();
+}
+function updateCalc() {
+  const motor = STATE.motors.find(m=>m.id===$('#calc-motor').value);
+  const prop = STATE.props.find(p=>p.id===$('#calc-prop').value);
+  const weight = parseFloat($('#calc-weight').value)||0;
+  const count = parseInt($('#calc-count').value)||4;
+  const voltage = parseFloat($('#calc-voltage').value)||3.7;
+  const limit = (parseFloat($('#calc-limit').value)||100)/100;
+  if (!motor||!prop) return;
+  const pf = (prop.pitch_in/1.9)*(prop.blades/3);
+  const vf = Math.pow(voltage/3.7, 1.5);
+  const kf = Math.pow(motor.kv/30000, 1.7);
+  const tpm = motor.max_thrust_g * pf * vf * kf * limit;
+  const total = tpm * count;
+  const twr = total / weight;
+  const cpm = motor.max_current_a * pf * vf * kf * limit;
+  const tc = cpm * count;
+  let v='ok',t='Świetny stosunek.';
+  if (twr<2){v='danger';t='Zbyt niski ciąg.'} else if (twr<3){v='warn';t='Akceptowalny.'} else if (twr>9){v='warn';t='Ogromny zapas.'}
+  const cm={ok:'text-ok',warn:'text-warn',danger:'text-danger'};
+  const bm={ok:'border-ok/40',warn:'border-warn/40',danger:'border-danger/40'};
+  $('#calc-results').innerHTML = `
+    <div class="grid grid-cols-2 gap-3">
+      <div class="bg-bg border border-border rounded-lg p-3"><div class="text-xs text-slate-500">Ciąg / silnik</div><div class="text-xl font-bold">${tpm.toFixed(2)} g</div></div>
+      <div class="bg-bg border border-border rounded-lg p-3"><div class="text-xs text-slate-500">Ciąg całkowity</div><div class="text-xl font-bold">${total.toFixed(1)} g</div></div>
+      <div class="bg-bg border border-border rounded-lg p-3"><div class="text-xs text-slate-500">Prąd całkowity</div><div class="text-xl font-bold">${tc.toFixed(2)} A</div></div>
+      <div class="bg-bg border border-border rounded-lg p-3"><div class="text-xs text-slate-500">Ciąg/waga</div><div class="text-xl font-bold ${cm[v]}">${twr.toFixed(2)} : 1</div></div>
+    </div>
+    <div class="border ${bm[v]} rounded-lg p-3 mt-3"><div class="text-xs text-slate-400">Ocena</div><div class="font-bold ${cm[v]}">${t}</div></div>
+    <p class="text-xs text-slate-500 mt-3">Wartości heurystyczne.</p>`;
+}
+
+/* ==================================================================
+   7. PID CALCULATOR
+   ================================================================== */
+function generatePID() {
+  const w = parseFloat($('#pc-weight').value)||20;
+  const kv = parseInt($('#pc-kv').value)||26000;
+  const prop = parseFloat($('#pc-prop').value)||1.1;
+  const style = $('#pc-style').value;
+  const v = parseFloat($('#pc-voltage').value)||3.7;
+
+  // Heurystyka: masa i KV wpływają na P, D, FF. Śmigło na D (drag).
+  const wFactor = Math.pow(w/20, 0.5);
+  const kvFactor = Math.pow(kv/26000, 0.35);
+  const propFactor = Math.pow(prop/1.1, 0.5);
+  const vFactor = Math.pow(3.7/v, 0.3);
+
+  const styleMap = {
+    precision: {p:0.85, i:0.75, d:0.95, f:0.85},
+    balanced: {p:1.0, i:1.0, d:1.0, f:1.0},
+    aggressive: {p:1.15, i:1.15, d:1.1, f:1.25}
+  };
+  const s = styleMap[style];
+
+  const baseP = 60, baseI = 90, baseD = 45, baseF = 50;
+  const p_pitch = Math.round(baseP * wFactor * kvFactor * propFactor * vFactor * s.p);
+  const p_roll = Math.round(baseP * wFactor * kvFactor * propFactor * vFactor * s.p * 0.95);
+  const p_yaw = Math.round(baseP * wFactor * kvFactor * s.p * 0.9);
+  const i_pitch = Math.round(baseI * wFactor * kvFactor * propFactor * s.i);
+  const i_roll = Math.round(baseI * wFactor * kvFactor * propFactor * s.i * 0.95);
+  const i_yaw = Math.round(baseI * wFactor * s.i);
+  const d_pitch = Math.round(baseD * wFactor * propFactor * s.d * 0.95);
+  const d_roll = Math.round(baseD * wFactor * propFactor * s.d);
+  const d_yaw = 0;
+  const f_pitch = Math.round(baseF * wFactor * kvFactor * s.f);
+  const f_roll = Math.round(baseF * wFactor * kvFactor * s.f * 0.95);
+  const f_yaw = Math.round(baseF * wFactor * s.f * 0.85);
+  const dmin_roll = Math.round(d_roll * 0.9);
+  const dmin_pitch = Math.round(d_pitch * 0.9);
+
+  const diff = `# WhoopLab PID Generator
+# Waga: ${w}g | KV: ${kv} | Śmigło: ${prop}" | Styl: ${style} | V: ${v}V
+set p_pitch = ${p_pitch}
+set i_pitch = ${i_pitch}
+set d_pitch = ${d_pitch}
+set f_pitch = ${f_pitch}
+set p_roll = ${p_roll}
+set i_roll = ${i_roll}
+set d_roll = ${d_roll}
+set f_roll = ${f_roll}
+set p_yaw = ${p_yaw}
+set i_yaw = ${i_yaw}
+set f_yaw = ${f_yaw}
+set d_min_roll = ${dmin_roll}
+set d_min_pitch = ${dmin_pitch}
+set d_max_gain = 20
+set anti_gravity_gain = 60
+set throttle_boost = 0
+set tpa_rate = 60
+set tpa_breakpoint = 1350
+set feedforward_jitter_factor = 5
+set simplified_master_multiplier = ${style==='aggressive'?110:style==='precision'?85:100}
+set simplified_i_gain = 80
+set simplified_d_gain = 110
+set simplified_pi_gain = 110`;
+
+  $('#pc-output').textContent = diff;
+  $('#pc-copy').classList.remove('hidden');
+  $('#pc-explain').innerHTML = `Wygenerowano na podstawie: masy, KV, skoku śmigła, napięcia i stylu. Traktuj jako punkt wyjścia – dostrój w locie.`;
+}
+function copyPidCalc() {
+  navigator.clipboard.writeText($('#pc-output').textContent).then(()=>{
+    const b = $('#pc-copy'); const old = b.textContent;
+    b.textContent = '✅ Skopiowano!'; setTimeout(()=>b.textContent=old, 2000);
+  });
+}
+
+/* ==================================================================
+   8. PID LIBRARY
+   ================================================================== */
+let currentPid = null;
+function renderPidList() {
+  const el = $('#pid-list'); if (!el) return;
+  el.innerHTML = STATE.pids.map(p => `
+    <button data-pid="${p.id}" class="pid-btn w-full text-left bg-panel border border-border rounded-lg p-3 hover:border-accent/50">
+      <div class="flex items-center justify-between">
+        <div class="font-bold text-sm">${p.name}</div>
+        ${p.builtIn?'<span class="text-[10px] text-slate-500">wbudowany</span>':''}
+      </div>
+      <div class="text-xs text-slate-500">${p.desc||''}</div>
+    </button>`).join('');
+  $$('.pid-btn').forEach(b => b.onclick = () => showPid(b.dataset.pid));
+}
+function showPid(id) {
+  const p = STATE.pids.find(x=>x.id===id); if (!p) return;
+  currentPid = p;
+  $('#pid-title').textContent = p.name;
+  $('#pid-preview').textContent = p.diff;
+  ['#pid-copy','#pid-export'].forEach(s=>$(s).classList.remove('hidden'));
+  if (!p.builtIn) $('#pid-del').classList.remove('hidden'); else $('#pid-del').classList.add('hidden');
+  $$('.pid-btn').forEach(b=>b.classList.toggle('border-accent/60', b.dataset.pid===id));
+  $('#pid-status').classList.add('hidden');
+}
+function copyPid() {
+  if (!currentPid) return;
+  navigator.clipboard.writeText(currentPid.diff).then(()=>{
+    const s = $('#pid-status'); s.textContent='✅ Skopiowano!'; s.className='text-xs mt-2 text-ok'; s.classList.remove('hidden');
+    setTimeout(()=>s.classList.add('hidden'), 2500);
+  }).catch(()=>{
+    const s = $('#pid-status'); s.textContent='❌ Błąd schowka.'; s.className='text-xs mt-2 text-danger'; s.classList.remove('hidden');
+  });
+}
+function exportPid() {
+  if (!currentPid) return;
+  const blob = new Blob([currentPid.diff], {type:'text/plain'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `whooplab_${currentPid.name.replace(/\s+/g,'_')}.txt`;
+  a.click();
+}
+function addPid() {
+  const name = prompt('Nazwa:'); if (!name) return;
+  const desc = prompt('Opis:')||'';
+  const diff = prompt('Diff:')||''; if (!diff) return;
+  STATE.pids.push({id:uuid(),name,desc,diff,builtIn:false});
+  save(); renderPidList();
+}
+function delPid() {
+  if (!currentPid||currentPid.builtIn) return;
+  showModal('Usuń','Na pewno?',()=>{
+    STATE.pids = STATE.pids.filter(p=>p.id!==currentPid.id);
+    save(); renderPidList(); currentPid=null;
+    $('#pid-title').textContent='Wybierz profil';
+    $('#pid-preview').textContent='Wybierz profil.';
+    ['#pid-copy','#pid-export','#pid-del'].forEach(s=>$(s).classList.add('hidden'));
+  });
+}
+
+/* ==================================================================
+   9. PARSER
+   ================================================================== */
+function parseDiff(text) {
+  const lines = text.split('\n').map(l=>l.trim());
+  const out = {profile:null,rateprofile:null,pid:{},rate:{},filters:{},other:{},raw:[]};
+  for (const line of lines) {
+    if (!line||line.startsWith('#')) continue;
+    if (/^profile\s+\d+$/.test(line)) { out.profile = parseInt(line.split(' ')[1]); continue; }
+    if (/^rateprofile\s+\d+$/.test(line)) { out.rateprofile = parseInt(line.split(' ')[1]); continue; }
+    if (/^set\s+profile_name\s*=/.test(line)) { out.profileName = line.split('=')[1].trim(); continue; }
+    const m = line.match(/^set\s+(\w+)\s*=\s*(.+)$/); if (!m) continue;
+    const [,k,v] = m;
+    if (k.match(/^[pidf]_/)||k.startsWith('d_min')||k.startsWith('d_max')) out.pid[k]=v;
+    else if (k.includes('rc_rate')||k.includes('expo')||k.includes('srate')||k==='rates_type'||k.startsWith('throttle_')) out.rate[k]=v;
+    else if (k.includes('filter')||k.includes('notch')||k.includes('lpf')||k.includes('dterm')) out.filters[k]=v;
+    else out.other[k]=v;
+    out.raw.push(line);
+  }
+  return out;
+}
+function renderParser() {
+  const el = $('#parser-result');
+  const text = $('#parser-input').value;
+  if (!text.trim()) { el.innerHTML='<p class="text-slate-500">Wklej diff.</p>'; return; }
+  const r = parseDiff(text);
+  const sec = (title,obj) => Object.keys(obj).length ? `
+    <div class="mb-3"><div class="text-xs text-accent font-bold mb-1">${title}</div>
+    <div class="grid grid-cols-2 gap-1 text-xs">${Object.entries(obj).map(([k,v])=>`<div class="text-slate-500">${k}</div><div class="font-bold">${v}</div>`).join('')}</div></div>` : '';
+  el.innerHTML = `
+    <div class="mb-3 flex flex-wrap gap-2">
+      <span class="badge bg-accent/20 border-accent/40 text-accent">Profil: ${r.profile??'-'}</span>
+      <span class="badge bg-accent2/20 border-accent2/40 text-accent2">Rate: ${r.rateprofile??'-'}</span>
+      ${r.profileName?`<span class="badge bg-white/5 border-border">${r.profileName}</span>`:''}
+    </div>
+    ${sec('PID',r.pid)}${sec('Rates',r.rate)}${sec('Filtry',r.filters)}${sec('Pozostałe',r.other)}
+    <div class="mt-3 text-xs text-slate-500">Wczytano ${r.raw.length} linii.</div>`;
+}
+function saveParsedAsPid() {
+  const text = $('#parser-input').value;
+  const r = parseDiff(text);
+  const name = r.profileName || prompt('Nazwa:') || 'Profil ' + new Date().toLocaleDateString();
+  STATE.pids.push({id:uuid(),name,desc:`Profil ${r.profile??'-'} / Rate ${r.rateprofile??'-'}`,diff:text,builtIn:false});
+  save(); renderPidList(); alert('Zapisano: '+name);
+}
+
+/* ==================================================================
+   10. ESC / BLUEJAY
+   ================================================================== */
+function generateESC() {
+  const proto = $('#esc-proto').value;
+  const pwm = $('#esc-pwm').value;
+  const startup = $('#esc-startup').value;
+  const timing = $('#esc-timing').value;
+  const demag = $('#esc-demag').value;
+  const bidir = $('#esc-bidir').value;
+  const rpm = $('#esc-rpm').value;
+
+  const out = `# WhoopLab ESC / Bluejay Recommendation
+# Wygenerowano: ${new Date().toLocaleString()}
+
+## Betaflight
+set motor_pwm_protocol = ${proto}
+set dshot_bidir = ${bidir==='On'?'ON':'OFF'}
+set motor_poles = 12
+set motor_kv = 26000
+set dyn_idle_min_rpm = 30
+set dshot_bitbang = AUTO
+
+## Bluejay (ESC)
+# Motor PWM Frequency: ${pwm}
+# Startup Power: ${startup}
+# Motor Timing: ${timing}
+# Demag Compensation: ${demag}
+# Bidirectional DShot: ${bidir}
+# RPM Filter: ${rpm}
+# Rampup Time: 0.30ms
+# Temp Protection: On (140°C)
+
+## Uwagi
+# - ${pwm} to dobry kompromis dla 0702.
+# - Startup Power ${startup} zapobiega desync.
+# - ${demag} demag wystarczy dla większości setupów 1S.
+# - RPM Filter ${rpm} – włączony redukuje hałas i drgania.`;
+
+  $('#esc-output').textContent = out;
+}
+function copyEsc() {
+  navigator.clipboard.writeText($('#esc-output').textContent).then(()=>{
+    const b = $('#esc-copy'); const old = b.textContent;
+    b.textContent = '✅ Skopiowano!'; setTimeout(()=>b.textContent=old, 2000);
+  });
+}
+
+/* ==================================================================
+   11. MAP / TRACKS
+   ================================================================== */
+let map, markersLayer;
+function initMap() {
+  if (map) return;
+  map = L.map('map').setView([52.23,21.0],6);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
+    attribution:'© OpenStreetMap, © CARTO', maxZoom:19
+  }).addTo(map);
+  markersLayer = L.layerGroup().addTo(map);
+  map.on('click', e => {
+    const name = prompt('Nazwa toru:'); if (!name) return;
+    const type = prompt('Typ (hala/outdoor/klub):')||'';
+    const notes = prompt('Notatki:')||'';
+    STATE.tracks.push({id:uuid(),name,type,notes,lat:e.latlng.lat,lng:e.latlng.lng});
+    save(); renderTracks();
+  });
+  renderTracksOnMap();
+}
+function renderTracksOnMap() {
+  if (!markersLayer) return;
+  markersLayer.clearLayers();
+  STATE.tracks.forEach(t => {
+    L.marker([t.lat,t.lng]).addTo(markersLayer).bindPopup(`<b>${t.name}</b><br>${t.type||''}<br>${t.notes||''}`);
+  });
+}
+function renderTracks() {
+  renderTracksOnMap();
+  const el = $('#tracks-list'); if (!el) return;
+  el.innerHTML = STATE.tracks.map(t => `
+    <div class="card bg-panel border border-border rounded-xl p-4">
+      <div class="flex items-start justify-between mb-2">
+        <div><h3 class="font-bold text-sm">${t.name}</h3><p class="text-xs text-slate-500">${t.type||'tor'} • ${t.lat.toFixed(3)}, ${t.lng.toFixed(3)}</p></div>
+        <button data-del-track="${t.id}" class="text-danger text-xs hover:underline">usuń</button>
+      </div>
+      <p class="text-xs text-slate-400 mb-3">${t.notes||'-'}</p>
+      <button data-go-track="${t.id}" class="text-xs px-2 py-1 rounded border border-border hover:border-accent/50">Pokaż na mapie</button>
+    </div>`).join('') || '<p class="text-slate-500 text-sm col-span-full">Brak torów. Kliknij na mapie.</p>';
+  $$('[data-del-track]').forEach(b=>b.onclick=()=>{STATE.tracks=STATE.tracks.filter(x=>x.id!==b.dataset.delTrack);save();renderTracks();});
+  $$('[data-go-track]').forEach(b=>b.onclick=()=>{const t=STATE.tracks.find(x=>x.id===b.dataset.goTrack);if(t&&map){map.setView([t.lat,t.lng],15);window.scrollTo({top:0,behavior:'smooth'});}});
+}
+
+/* ==================================================================
+   12. LOGS
+   ================================================================== */
+function addLog() {
+  const date = prompt('Data:', new Date().toISOString().slice(0,10)); if (!date) return;
+  const place = prompt('Miejsce/tor:')||'';
+  const battery = prompt('Pakiet:')||'';
+  const duration = prompt('Czas (s):')||'';
+  const temp = prompt('Temp (zimny/ciepły/gorący):')||'';
+  const rating = prompt('Ocena 1-5:')||'';
+  const notes = prompt('Notatki:')||'';
+  STATE.logs.push({id:uuid(),date,place,battery,duration,temp,rating,notes});
+  save(); renderLogs(); renderDashboard();
+}
+function renderLogs() {
+  const el = $('#logs-list'); const st = $('#logs-stats'); if (!el) return;
+  const logs = [...STATE.logs].sort((a,b)=>b.date.localeCompare(a.date));
+  const total = logs.reduce((s,l)=>s+(parseInt(l.duration)||0),0);
+  const avg = logs.filter(l=>l.rating).reduce((s,l,_,arr)=>s+parseInt(l.rating)/arr.length,0);
+  st.innerHTML = `
+    <div class="stat-card bg-panel border border-border rounded-lg p-3"><div class="text-xs text-slate-500">Loty</div><div class="text-2xl font-bold text-accent">${logs.length}</div></div>
+    <div class="stat-card bg-panel border border-border rounded-lg p-3"><div class="text-xs text-slate-500">Czas</div><div class="text-2xl font-bold text-accent">${Math.floor(total/60)}m</div></div>
+    <div class="stat-card bg-panel border border-border rounded-lg p-3"><div class="text-xs text-slate-500">Śr. ocena</div><div class="text-2xl font-bold text-accent">${avg?avg.toFixed(1):'-'}</div></div>
+    <div class="stat-card bg-panel border border-border rounded-lg p-3"><div class="text-xs text-slate-500">Ostatni</div><div class="text-sm font-bold text-accent">${logs[0]?.date||'-'}</div></div>`;
+  el.innerHTML = logs.map(l => `
+    <div class="bg-panel border border-border rounded-lg p-3 flex items-start justify-between gap-3">
+      <div class="flex-1">
+        <div class="flex items-center gap-2 mb-1 flex-wrap">
+          <span class="font-bold text-sm">${l.date}</span>
+          <span class="text-xs text-slate-500">${l.place||''}</span>
+          ${l.rating?`<span class="text-xs text-warn">${'★'.repeat(parseInt(l.rating))}</span>`:''}
+        </div>
+        <div class="text-xs text-slate-400 flex flex-wrap gap-3">
+          ${l.battery?`<span>🔋 ${l.battery}</span>`:''}
+          ${l.duration?`<span>⏱ ${l.duration}s</span>`:''}
+          ${l.temp?`<span>🌡 ${l.temp}</span>`:''}
+        </div>
+        ${l.notes?`<p class="text-xs text-slate-500 mt-1">${l.notes}</p>`:''}
+      </div>
+      <button data-del-log="${l.id}" class="text-danger text-xs hover:underline">usuń</button>
+    </div>`).join('') || '<p class="text-slate-500 text-sm">Brak lotów.</p>';
+  $$('[data-del-log]').forEach(b=>b.onclick=()=>{STATE.logs=STATE.logs.filter(x=>x.id!==b.dataset.delLog);save();renderLogs();renderDashboard();});
+}
+
+/* ==================================================================
+   13. BATTERIES
+   ================================================================== */
+function addBatt() {
+  const name = prompt('Nazwa:'); if (!name) return;
+  const cells = prompt('Celle:','1S')||'1S';
+  const cap = prompt('mAh:')||'';
+  const cycles = prompt('Cykle:','0')||'0';
+  STATE.batteries.push({id:uuid(),name,cells,cap,cycles:parseInt(cycles)||0});
+  save(); renderBatteries();
+}
+function renderBatteries() {
+  const el = $('#batt-grid'); if (!el) return;
+  el.innerHTML = STATE.batteries.map(b => {
+    const pct = Math.min(100, b.cycles/3);
+    const health = Math.max(0, 100 - b.cycles*0.5);
+    const hc = health>70?'text-ok':health>40?'text-warn':'text-danger';
+    return `<div class="card bg-panel border border-border rounded-xl p-4">
+      <div class="flex items-start justify-between mb-2">
+        <div><h3 class="font-bold text-sm">${b.name}</h3><p class="text-xs text-slate-500">${b.cells} • ${b.cap}mAh</p></div>
+        <div class="text-right"><div class="text-lg font-bold ${hc}">${health.toFixed(0)}%</div><div class="text-[10px] text-slate-500">zdrowie</div></div>
+      </div>
+      <div class="text-xs text-slate-400 mb-2">Cykle: <span class="font-bold">${b.cycles}</span></div>
+      <div class="h-2 bg-bg rounded-full overflow-hidden mb-3"><div class="h-full bg-gradient-to-r from-ok via-warn to-danger" style="width:${pct}%"></div></div>
+      <div class="flex gap-1">
+        <button data-inc-batt="${b.id}" class="text-xs px-2 py-1 rounded border border-border hover:border-accent/50">+1</button>
+        <button data-del-batt="${b.id}" class="text-xs px-2 py-1 rounded border border-danger/40 text-danger">usuń</button>
+      </div></div>`;
+  }).join('') || '<p class="text-slate-500 text-sm col-span-full">Brak baterii.</p>';
+  $$('[data-inc-batt]').forEach(b=>b.onclick=()=>{const x=STATE.batteries.find(v=>v.id===b.dataset.incBatt);if(x){x.cycles++;save();renderBatteries();}});
+  $$('[data-del-batt]').forEach(b=>b.onclick=()=>{STATE.batteries=STATE.batteries.filter(x=>x.id!==b.dataset.delBatt);save();renderBatteries();});
+}
+
+/* ==================================================================
+   14. TIMER
+   ================================================================== */
+let timer = {running:false,start:0,elapsed:0,laps:[],rafId:null};
+function fmtTime(ms){const t=ms/1000;const m=Math.floor(t/60);const s=Math.floor(t%60);const cs=Math.floor((t*100)%100);return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(cs).padStart(2,'0')}`;}
+function beep(f=800,d=80){if(!$('#timer-sound')?.checked)return;try{const ctx=new(window.AudioContext||window.webkitAudioContext)();const o=ctx.createOscillator();const g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.frequency.value=f;g.gain.value=0.15;o.start();o.stop(ctx.currentTime+d/1000);}catch(e){}}
+function timerTick(){if(!timer.running)return;const now=performance.now();$('#timer-display').textContent=fmtTime(timer.elapsed+(now-timer.start));timer.rafId=requestAnimationFrame(timerTick);}
+function timerStart(){if(timer.running)return;timer.running=true;timer.start=performance.now();beep(900,100);timerTick();}
+function timerLap(){if(!timer.running)return;const now=performance.now();const total=timer.elapsed+(now-timer.start);const prev=timer.laps.length?timer.laps[timer.laps.length-1].total:0;timer.laps.push({n:timer.laps.length+1,total,delta:total-prev});beep(1200,60);renderLaps();}
+function timerStop(){if(!timer.running)return;timer.elapsed+=performance.now()-timer.start;timer.running=false;cancelAnimationFrame(timer.rafId);beep(500,150);renderLaps();}
+function timerReset(){timer={running:false,start:0,elapsed:0,laps:[],rafId:null};$('#timer-display').textContent='00:00.00';renderLaps();}
+function renderLaps(){const el=$('#timer-laps');if(!timer.laps.length){el.innerHTML='Brak okrążeń.';return;}const best=Math.min(...timer.laps.map(l=>l.delta));el.innerHTML=timer.laps.map(l=>`<div class="flex items-center justify-between px-2 py-1.5 rounded ${l.delta===best?'bg-ok/10 border border-ok/30':''}"><span class="text-slate-500">#${l.n}</span><span class="font-bold">${fmtTime(l.total)}</span><span class="text-xs ${l.delta===best?'text-ok':'text-accent2'}">+${fmtTime(l.delta)}</span></div>`).join('');}
+function timerSaveSession(){
+  if (!timer.laps.length) { alert('Brak okrążeń.'); return; }
+  const best = timer.laps.reduce((a,b)=>a.delta<b.delta?a:b);
+  const date = new Date().toISOString().slice(0,10);
+  const place = prompt('Tor/miejsce:')||'';
+  STATE.logs.push({id:uuid(),date,place,battery:'',duration:String(Math.round(best.total/1000)),temp:'',rating:'5',notes:`Timer: ${timer.laps.length} okrążeń, best ${fmtTime(best.delta)}`});
+  save(); renderLogs(); renderDashboard();
+  alert('Zapisano sesję!');
+}
+
+/* ==================================================================
+   15. RANKINGS
+   ================================================================== */
+function renderRankings() {
+  const filter = $('#rank-filter').value;
+  const logs = STATE.logs.filter(l=>l.duration && (filter==='all'||l.place===filter));
+  const sorted = [...logs].sort((a,b)=>parseInt(a.duration)-parseInt(b.duration)).slice(0,20);
+  const el = $('#rankings-list');
+  if (!sorted.length) { el.innerHTML = '<p class="text-slate-500 text-sm">Brak danych. Dodaj loty z czasem.</p>'; }
+  else el.innerHTML = `<table class="w-full text-sm border border-border rounded-xl overflow-hidden">
+    <thead class="bg-panel2"><tr>
+      <th class="text-left px-3 py-2 text-xs text-slate-500">#</th>
+      <th class="text-left px-3 py-2">Pilot</th>
+      <th class="text-left px-3 py-2">Tor</th>
+      <th class="text-left px-3 py-2">Data</th>
+      <th class="text-right px-3 py-2">Czas</th>
+    </tr></thead><tbody>
+    ${sorted.map((l,i)=>`<tr class="border-t border-border">
+      <td class="px-3 py-2 text-xs ${i===0?'text-warn font-bold':i<3?'text-accent font-bold':'text-slate-500'}">${i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</td>
+      <td class="px-3 py-2">Ty</td>
+      <td class="px-3 py-2 text-slate-400">${l.place||'-'}</td>
+      <td class="px-3 py-2 text-slate-400">${l.date}</td>
+      <td class="px-3 py-2 text-right font-bold">${l.duration}s</td>
+    </tr>`).join('')}</tbody></table>`;
+
+  const rf = $('#rank-filter');
+  const places = [...new Set(STATE.logs.map(l=>l.place).filter(Boolean))];
+  const curr = rf.value;
+  rf.innerHTML = '<option value="all">Wszystkie tory</option>' + places.map(p=>`<option ${p===curr?'selected':''}>${p}</option>`).join('');
+}
+function exportRankCSV() {
+  const rows = [['rank','pilot','track','date','time_s']];
+  const sorted = [...STATE.logs].filter(l=>l.duration).sort((a,b)=>parseInt(a.duration)-parseInt(b.duration));
+  sorted.forEach((l,i)=>rows.push([i+1,'Ty',l.place||'',l.date,l.duration]));
+  const csv = rows.map(r=>r.join(',')).join('\n');
+  download('rankings.csv', csv);
+}
+
+/* ==================================================================
+   16. CHALLENGES
+   ================================================================== */
+function renderChallenges() {
+  const el = $('#challenges-grid'); if (!el) return;
+  el.innerHTML = STATE.challenges.map(c => {
+    const pct = Math.min(100, (c.progress/c.target)*100);
+    return `<div class="card bg-panel border border-border rounded-xl p-4 ${c.completed?'border-ok/40':''}">
+      <div class="flex items-start justify-between mb-2">
+        <div><h3 class="font-bold text-sm">${c.reward} ${c.name}</h3><p class="text-xs text-slate-500">${c.desc}</p></div>
+        ${c.completed?'<span class="text-ok text-xs">✅</span>':''}
+      </div>
+      <div class="flex justify-between text-xs text-slate-400 mb-1">
+        <span>${c.progress} / ${c.target} ${c.unit}</span>
+        <span>${pct.toFixed(0)}%</span>
+      </div>
+      <div class="h-2 bg-bg rounded-full overflow-hidden mb-3"><div class="h-full ${c.completed?'bg-ok':'bg-accent'}" style="width:${pct}%"></div></div>
+      <div class="flex gap-1">
+        <button data-chal-prog="${c.id}" class="text-xs px-2 py-1 rounded border border-border hover:border-accent/50">+1</button>
+        <button data-chal-reset="${c.id}" class="text-xs px-2 py-1 rounded border border-border hover:border-accent/50">↺</button>
+      </div></div>`;
+  }).join('');
+  $$('[data-chal-prog]').forEach(b=>b.onclick=()=>{const c=STATE.challenges.find(x=>x.id===b.dataset.chalProg);if(c){c.progress=Math.min(c.target,c.progress+1);c.completed=c.progress>=c.target;save();renderChallenges();}});
+  $$('[data-chal-reset]').forEach(b=>b.onclick=()=>{const c=STATE.challenges.find(x=>x.id===b.dataset.chalReset);if(c){c.progress=0;c.completed=false;save();renderChallenges();}});
+}
+
+/* ==================================================================
+   17. MARKETPLACE
+   ================================================================== */
+function addListing() {
+  const title = prompt('Tytuł:'); if (!title) return;
+  const price = prompt('Cena (PLN):')||'';
+  const cat = prompt('Kategoria (Silniki/Śmigła/Ramy/AIO/Baterie/Inne):')||'Inne';
+  const desc = prompt('Opis:')||'';
+  const contact = prompt('Kontakt:')||'';
+  STATE.listings.push({id:uuid(),title,price,cat,desc,contact,date:new Date().toISOString().slice(0,10)});
+  save(); renderMarket();
+}
+function renderMarket() {
+  const el = $('#market-grid'); if (!el) return;
+  const q = ($('#market-search').value||'').toLowerCase();
+  const cat = $('#market-cat').value;
+  const list = STATE.listings.filter(l => (!cat||l.cat===cat) && (!q || l.title.toLowerCase().includes(q) || l.desc.toLowerCase().includes(q)));
+  el.innerHTML = list.map(l => `
+    <div class="card bg-panel border border-border rounded-xl p-4">
+      <div class="flex items-start justify-between mb-2">
+        <div><h3 class="font-bold text-sm">${l.title}</h3><p class="text-xs text-slate-500">${l.cat} • ${l.date}</p></div>
+        <div class="text-right"><div class="text-lg font-bold text-accent">${l.price} zł</div></div>
+      </div>
+      <p class="text-xs text-slate-400 mb-2">${l.desc}</p>
+      <div class="text-xs text-slate-500">📞 ${l.contact}</div>
+      <div class="flex justify-end mt-2"><button data-del-list="${l.id}" class="text-danger text-xs">usuń</button></div>
+    </div>`).join('') || '<p class="text-slate-500 text-sm col-span-full">Brak ogłoszeń.</p>';
+  $$('[data-del-list]').forEach(b=>b.onclick=()=>{STATE.listings=STATE.listings.filter(x=>x.id!==b.dataset.delList);save();renderMarket();});
+}
+
+/* ==================================================================
+   18. CLOUD (mock)
+   ================================================================== */
+function cloudLogin() {
+  const email = $('#cloud-email').value, pass = $('#cloud-pass').value;
+  if (!email||!pass) { alert('Podaj email i hasło.'); return; }
+  STATE.cloudUser = {email, ts:Date.now()};
+  save();
+  $('#cloud-status').innerHTML = `<div class="text-ok">✅ Zalogowany: <b>${email}</b></div><div class="text-xs text-slate-500 mt-1">Tryb demo – dane lokalne.</div>`;
+}
+function cloudLogout() { STATE.cloudUser=null; save(); $('#cloud-status').textContent='Nie zalogowano.'; }
+function cloudPush() {
+  if (!STATE.cloudUser) { alert('Zaloguj się.'); return; }
+  const data = JSON.stringify(STATE);
+  localStorage.setItem('whooplab_cloud_backup', data);
+  alert('✅ Wysłano do chmury (mock – zapis lokalny).');
+}
+function cloudPull() {
+  if (!STATE.cloudUser) { alert('Zaloguj się.'); return; }
+  const data = localStorage.getItem('whooplab_cloud_backup');
+  if (!data) { alert('Brak danych w chmurze.'); return; }
+  showModal('Pobierz z chmury','Nadpisze lokalne dane. Kontynuować?',()=>{
+    STATE = JSON.parse(data); save(); renderAll();
+    alert('✅ Pobrano!');
+  });
+}
+
+/* ==================================================================
+   19. CSV IMPORT/EXPORT
+   ================================================================== */
+function parseCSV() {
+  const text = $('#csv-input').value.trim(); if (!text) return;
+  const lines = text.split('\n').filter(l=>l.trim());
+  const headers = lines[0].split(',').map(h=>h.trim());
+  let added = 0;
+  for (let i=1;i<lines.length;i++) {
+    const vals = lines[i].split(',').map(v=>v.trim());
+    const obj = {};
+    headers.forEach((h,j)=>obj[h]=vals[j]);
+    if (!obj.name || !obj.kv) continue;
+    STATE.motors.push({
+      id: uuid(),
+      name: obj.name,
+      kv: parseInt(obj.kv),
+      weight_g: parseFloat(obj.weight_g)||1.5,
+      stator: obj.stator||'0702',
+      magnets: obj.magnets||'',
+      resistance_mohm: parseFloat(obj.resistance_mohm)||null,
+      max_current_a: parseFloat(obj.max_current_a)||0,
+      max_thrust_g: parseFloat(obj.max_thrust_g)||0,
+      test_prop: obj.test_prop||'',
+      temp_c: null, temp:'ok',
+      tags: (obj.tags||'').split('|').filter(Boolean),
+      notes: obj.notes||'Import CSV'
+    });
+    added++;
+  }
+  save(); renderAll();
+  $('#csv-result').innerHTML = `<span class="text-ok">✅ Dodano ${added} silników.</span>`;
+}
+function loadCsvFile(file) {
+  const r = new FileReader();
+  r.onload = e => { $('#csv-input').value = e.target.result; };
+  r.readAsText(file);
+}
+function csvTemplate() {
+  const csv = 'name,kv,weight_g,stator,magnets,resistance_mohm,max_current_a,max_thrust_g,test_prop,tags,notes\nVCI 0702PRO DB,30000,1.49,0702,52SH arc,170,5.9,38.8,Gemfan 1219S-3,1S|racing,Przykład';
+  download('whooplab_szablon.csv', csv);
+}
+function exportMotorsCSV() {
+  const rows = [['id','name','kv','weight_g','stator','max_current_a','max_thrust_g','test_prop','tags']];
+  STATE.motors.forEach(m=>rows.push([m.id,m.name,m.kv,m.weight_g,m.stator,m.max_current_a,m.max_thrust_g,m.test_prop||'',(m.tags||[]).join('|')]));
+  download('whooplab_motors.csv', rows.map(r=>r.join(',')).join('\n'));
+}
+
+/* ==================================================================
+   20. DASHBOARD
+   ================================================================== */
+let chartLogs, chartMotors;
+function renderDashboard() {
+  const stats = $('#dash-stats'); if (!stats) return;
+  const totalLogs = STATE.logs.length;
+  const totalTime = STATE.logs.reduce((s,l)=>s+(parseInt(l.duration)||0),0);
+  const twr = 6.5; // placeholder
+  const motors = STATE.motors.length;
+  stats.innerHTML = `
+    <div class="stat-card bg-panel border border-border rounded-xl p-4">
+      <div class="text-xs text-slate-500">Loty</div><div class="text-3xl font-bold text-accent">${totalLogs}</div>
+    </div>
+    <div class="stat-card bg-panel border border-border rounded-xl p-4">
+      <div class="text-xs text-slate-500">Czas łączny</div><div class="text-3xl font-bold text-accent">${Math.floor(totalTime/60)}m</div>
+    </div>
+    <div class="stat-card bg-panel border border-border rounded-xl p-4">
+      <div class="text-xs text-slate-500">Silniki w bazie</div><div class="text-3xl font-bold text-accent">${motors}</div>
+    </div>
+    <div class="stat-card bg-panel border border-border rounded-xl p-4">
+      <div class="text-xs text-slate-500">Baterie</div><div class="text-3xl font-bold text-accent">${STATE.batteries.length}</div>
+    </div>`;
+
+  // Wykres logów
+  const ctx1 = $('#chart-logs'); if (ctx1) {
+    if (chartLogs) chartLogs.destroy();
+    const days = [];
+    for (let i=13;i>=0;i--) {
+      const d = new Date(); d.setDate(d.getDate()-i);
+      const key = d.toISOString().slice(0,10);
+      days.push({label:key.slice(5), count:STATE.logs.filter(l=>l.date===key).length});
+    }
+    chartLogs = new Chart(ctx1, {
+      type:'line', data:{ labels:days.map(d=>d.label), datasets:[{
+        label:'Loty', data:days.map(d=>d.count), borderColor:'#22d3ee',
+        backgroundColor:'rgba(34,211,238,.15)', tension:.4, fill:true, pointRadius:2
+      }]},
+      options:{ plugins:{legend:{display:false}}, scales:{x:{ticks:{color:'#64748b',font:{size:9}}},y:{ticks:{color:'#64748b',font:{size:9}},beginAtZero:true}}}
+    });
+  }
+  const ctx2 = $('#chart-motors'); if (ctx2) {
+    if (chartMotors) chartMotors.destroy();
+    const usage = {};
+    STATE.logs.forEach(l=>{ const k = l.battery||'unknown'; usage[k]=(usage[k]||0)+1; });
+    chartMotors = new Chart(ctx2, {
+      type:'doughnut', data:{ labels:Object.keys(usage).slice(0,6), datasets:[{
+        data:Object.values(usage).slice(0,6),
+        backgroundColor:['#22d3ee','#a78bfa','#34d399','#fbbf24','#f87171','#94a3b8']
+      }]},
+      options:{ plugins:{legend:{position:'right',labels:{color:'#94a3b8',font:{size:10}}}}, maintainAspectRatio:false }
+    });
+  }
+}
+
+/* ==================================================================
+   21. BACKUP / RESTORE / DOWNLOAD
+   ================================================================== */
+function backup() {
+  download(`whooplab_backup_${new Date().toISOString().slice(0,10)}.json`, JSON.stringify(STATE,null,2));
+}
+function restore(file) {
+  const r = new FileReader();
+  r.onload = e => {
+    try { STATE = JSON.parse(e.target.result); save(); renderAll(); alert('✅ Przywrócono!'); }
+    catch(err){ alert('Błąd: '+err.message); }
+  };
+  r.readAsText(file);
+}
+function download(name, content) {
+  const blob = new Blob([content], {type:'text/plain'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
+}
+
+/* ==================================================================
+   22. TABS / THEME
+   ================================================================== */
+function initTabs() {
+  $$('.tab-btn').forEach(btn => btn.onclick = () => {
+    const tab = btn.dataset.tab;
+    $$('.tab-panel').forEach(p=>p.classList.add('hidden'));
+    const t = $('#tab-'+tab); if (t) t.classList.remove('hidden');
+    $$('.tab-btn').forEach(b=>b.classList.remove('tab-active'));
+    btn.classList.add('tab-active');
+    if (tab==='tracks') setTimeout(()=>{initMap();map?.invalidateSize();},50);
+    if (tab==='dashboard') setTimeout(renderDashboard,50);
+    if (tab==='rankings') renderRankings();
+  });
+  $('[data-tab="dashboard"]').classList.add('tab-active');
+}
+function applyTheme(light) {
+  document.documentElement.classList.toggle('light', light);
+  $('#btn-theme').textContent = light ? '☀️' : '🌙';
+  $('#set-light').checked = light;
+}
+function toggleTheme() {
+  STATE.settings.light = !STATE.settings.light;
+  save(); applyTheme(STATE.settings.light);
+}
+
+/* ==================================================================
+   23. RENDER ALL
+   ================================================================== */
+function renderAll() {
+  renderMotors(); renderProps();
+  renderComparePicker(); renderCompareResult();
+  initCalc(); renderPidList(); renderTracks(); renderLogs();
+  renderBatteries(); renderDashboard(); renderChallenges(); renderMarket();
+  renderSettingsStats();
+  if (STATE.cloudUser) $('#cloud-status').innerHTML = `<div class="text-ok">✅ Zalogowany: <b>${STATE.cloudUser.email}</b></div>`;
+  if (map) renderTracksOnMap();
+}
+function renderSettingsStats() {
+  const el = $('#settings-stats'); if (!el) return;
+  const size = (JSON.stringify(STATE).length/1024).toFixed(2);
+  el.innerHTML = `
+    <div class="bg-bg border border-border rounded-lg p-3"><div class="text-xs text-slate-500">Silniki</div><div class="text-xl font-bold">${STATE.motors.length}</div></div>
+    <div class="bg-bg border border-border rounded-lg p-3"><div class="text-xs text-slate-500">Loty</div><div class="text-xl font-bold">${STATE.logs.length}</div></div>
+    <div class="bg-bg border border-border rounded-lg p-3"><div class="text-xs text-slate-500">Dane</div><div class="text-xl font-bold">${size} KB</div></div>
+    <div class="bg-bg border border-border rounded-lg p-3"><div class="text-xs text-slate-500">Wersja</div><div class="text-xl font-bold">2.0</div></div>`;
+}
+
+/* ==================================================================
+   24. INIT
+   ================================================================== */
+document.addEventListener('DOMContentLoaded', () => {
+  initTabs();
+  applyTheme(STATE.settings.light);
+  renderAll();
+
+  $('#motors-search')?.addEventListener('input', e => renderMotors(e.target.value));
+  $('#parser-run')?.addEventListener('click', renderParser);
+  $('#parser-save')?.addEventListener('click', saveParsedAsPid);
+  $('#pid-copy')?.addEventListener('click', copyPid);
+  $('#pid-export')?.addEventListener('click', exportPid);
+  $('#pid-del')?.addEventListener('click', delPid);
+  $('#btn-add-pid')?.addEventListener('click', addPid);
+  $('#btn-add-track')?.addEventListener('click', () => alert('Kliknij na mapie, aby dodać tor.'));
+  $('#btn-add-log')?.addEventListener('click', addLog);
+  $('#btn-add-batt')?.addEventListener('click', addBatt);
+  $('#btn-add-motor')?.addEventListener('click', () => {
+    const name = prompt('Nazwa silnika:'); if (!name) return;
+    const kv = prompt('KV:'); if (!kv) return;
+    STATE.motors.push({id:uuid(),name,kv:parseInt(kv),weight_g:1.5,stator:'0702',magnets:'',resistance_mohm:null,max_current_a:0,max_thrust_g:0,test_prop:'',temp_c:null,temp:'ok',tags:[],notes:''});
+    save(); renderMotors();
+  });
+  $('#btn-add-prop')?.addEventListener('click', () => {
+    const name = prompt('Nazwa śmigła:'); if (!name) return;
+    const pitch = prompt('Skok (cal):'); if (!pitch) return;
+    STATE.props.push({id:uuid(),name,pitch_in:parseFloat(pitch),diameter_mm:31,blades:3,weight_g:0.2,material:'PC',shaft_mm:1.0,tags:[],notes:''});
+    save(); renderProps();
+  });
+  $('#btn-add-listing')?.addEventListener('click', addListing);
+  $('#btn-export-rank')?.addEventListener('click', exportRankCSV);
+  $('#market-search')?.addEventListener('input', renderMarket);
+  $('#market-cat')?.addEventListener('change', renderMarket);
+  $('#rank-filter')?.addEventListener('change', renderRankings);
+
+  $('#timer-start')?.addEventListener('click', timerStart);
+  $('#timer-lap')?.addEventListener('click', timerLap);
+  $('#timer-stop')?.addEventListener('click', timerStop);
+  $('#timer-reset')?.addEventListener('click', timerReset);
+  $('#timer-save')?.addEventListener('click', timerSaveSession);
+
+  $('#pc-run')?.addEventListener('click', generatePID);
+  $('#pc-copy')?.addEventListener('click', copyPidCalc);
+
+  $('#esc-gen')?.addEventListener('click', generateESC);
+  $('#esc-copy')?.addEventListener('click', copyEsc);
+
+  $('#cloud-login')?.addEventListener('click', cloudLogin);
+  $('#cloud-logout')?.addEventListener('click', cloudLogout);
+  $('#cloud-push')?.addEventListener('click', cloudPush);
+  $('#cloud-pull')?.addEventListener('click', cloudPull);
+
+  $('#csv-parse')?.addEventListener('click', parseCSV);
+  $('#csv-template')?.addEventListener('click', csvTemplate);
+  $('#csv-file')?.addEventListener('change', e => { if (e.target.files[0]) loadCsvFile(e.target.files[0]); });
+
+  $('#btn-backup')?.addEventListener('click', backup);
+  $('#btn-restore')?.addEventListener('click', () => $('#file-restore').click());
+  $('#file-restore')?.addEventListener('change', e => { if (e.target.files[0]) restore(e.target.files[0]); });
+  $('#btn-theme')?.addEventListener('click', toggleTheme);
+  $('#set-light')?.addEventListener('change', e => { STATE.settings.light = e.target.checked; save(); applyTheme(e.target.checked); });
+  $('#set-backup')?.addEventListener('click', backup);
+  $('#set-restore')?.addEventListener('click', () => $('#file-restore').click());
+  $('#set-csv')?.addEventListener('click', exportMotorsCSV);
+  $('#set-reset')?.addEventListener('click', () => {
+    showModal('Reset','Usunie wszystkie dane i przywróci ustawienia fabryczne. Kontynuować?',()=>{
+      localStorage.removeItem(STORE_KEY); location.reload();
+    });
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.code==='Space' && !e.target.matches('input,textarea,select') && !$('#tab-timer').classList.contains('hidden')) {
+      e.preventDefault();
+      if (timer.running) timerLap(); else timerStart();
+    }
+    if (e.ctrlKey && e.key==='s') { e.preventDefault(); backup(); }
+  });
+});
+</script>
+</body>
+</html>
